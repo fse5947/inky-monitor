@@ -9,8 +9,9 @@
 #include <GxEPD2_3C.h>
 #include <TimeLib.h>
 #include "jura_regular8pt7b.h"
-#include "jura_bold12pt7b.h"
+#include "jura_regular7pt7b.h"
 #include "jura_bold30pt7b.h"
+#include "jura_bold12pt7b.h"
 #include "wifi_off.h"
 
 /* 2.9'' EPD Module */
@@ -23,11 +24,15 @@ const String basehistoryURL = "https://api.exchange.coinbase.com/products/BTC-US
 const String cryptoCode = "BTC";
 
 double btcusd;
+double priceChange;
 double percentChange;
+double zeroLinePrice;
 
-double pricehistory[32][4];
-uint8_t historylength;
+double pricehistory[MAX_HISTORY][4];
 double history_min, history_max;
+
+int historylength;
+int granularity;
 
 WiFiClient client;
 HTTPClient http;
@@ -35,7 +40,8 @@ HTTPClient http;
 String formattedDate;
 String dayStamp;
 String timeStamp;
-String lastUpdated;
+String lastUpdatedTimeStr;
+String lastUpdatedDateStr;
 int64_t lastUpdatedTime;
 
 void setup()
@@ -75,6 +81,18 @@ void setup()
   Serial.print("Connected to: ");
   Serial.print(ssid);
   Serial.println();
+
+  if (chartMode == 0) {          // 1-day chart
+    granularity = 3600;          // 1 hour candles
+    historylength = 24;
+  } else if (chartMode == 1) {   // 1-week chart
+    granularity = 21600;         // 6 candles per day (4hr)
+    historylength = 28;
+  } else if (chartMode == 2) {   // 30-day chart
+    granularity = 86400;         // 1 day candles
+    historylength = 30;
+  }
+
 }
 
 void loop()
@@ -83,6 +101,7 @@ void loop()
   {
     getTime();
     getCurrentBitcoinPrice();
+    getPercentChange();
     getCurrentBitcoinCandle();
     getBitcoinHistory();
     updateDisplay();
@@ -100,6 +119,49 @@ void loop()
 #else
   delay(REFRESH_RATE_S * 1000);
 #endif
+}
+
+const char* getDaySuffix(int day) {
+  if (day >= 11 && day <= 13) return "th";
+  switch (day % 10) {
+    case 1: return "st";
+    case 2: return "nd";
+    case 3: return "rd";
+    default: return "th";
+  }
+}
+
+void getTime()
+{
+  Serial.print("Connecting to ");
+  Serial.println(timeURL);
+
+  http.begin(timeURL);
+  int httpCode = http.GET();
+  StaticJsonDocument<2000> doc;
+  DeserializationError error = deserializeJson(doc, http.getString());
+
+  if (error)
+  {
+    Serial.print(F("deserializeJson Failed "));
+    Serial.println(error.f_str());
+    delay(2500);
+    return;
+  }
+
+  Serial.print("HTTP Status Code: ");
+  Serial.println(httpCode);
+
+  lastUpdatedTimeStr = doc["data"]["iso"].as<String>();
+  lastUpdatedTime = doc["data"]["epoch"].as<int64_t>();
+  http.end();
+
+  tmElements_t tm;
+  parseISO8601(lastUpdatedTimeStr, tm);
+  time_t utcTime = makeTime(tm);
+  time_t localTime = applyTimezoneOffset(utcTime, TIME_ZONE_OFFSET);
+  createTimeString(localTime, lastUpdatedTimeStr);
+  createDateString(localTime, lastUpdatedDateStr);
 }
 
 void getCurrentBitcoinPrice()
@@ -133,88 +195,84 @@ void getCurrentBitcoinPrice()
   Serial.println(BTCUSDPrice.toDouble());
 }
 
-void getTime()
-{
-  Serial.print("Connecting to ");
-  Serial.println(timeURL);
+void getPercentChange() {
+  int64_t now = (lastUpdatedTime / 60) * 60;
+  int64_t start = 0;
+  if (chartMode == 0) {         // 1D
+    start = now - 86400;
+  } else if (chartMode == 1) {  // 1W
+    start = now - (7 * 86400);
+  } else if (chartMode == 2) {  // 30D
+    start = now - (30 * 86400);
+  }
+  int64_t end = start + 60;
 
-  http.begin(timeURL);
+  // --- Fetch old candle ---
+  String oldCandleURL = basehistoryURL + "?start=" + String(start) + "&end=" + String(end) + "&granularity=60";
+  Serial.println("Getting old candle: " + oldCandleURL);
+
+  http.begin(oldCandleURL);
   int httpCode = http.GET();
-  StaticJsonDocument<2000> doc;
-  DeserializationError error = deserializeJson(doc, http.getString());
+  StaticJsonDocument<1000> oldDoc;
+  DeserializationError error = deserializeJson(oldDoc, http.getString());
+  http.end();
 
-  if (error)
-  {
-    Serial.print(F("deserializeJson Failed "));
-    Serial.println(error.f_str());
-    delay(2500);
+  JsonArray oldArray = oldDoc.as<JsonArray>();
+  if (error || oldArray.size() == 0) {
+    Serial.println("Old candle fetch failed.");
     return;
   }
 
-  Serial.print("HTTP Status Code: ");
-  Serial.println(httpCode);
+  zeroLinePrice = oldArray[0][3].as<double>();
+  Serial.print("Zero Line Price: ");
+  Serial.println(zeroLinePrice);
 
-  lastUpdated = doc["data"]["iso"].as<String>();
-  lastUpdatedTime = doc["data"]["epoch"].as<int>();
-  http.end();
-
-  tmElements_t tm;
-  parseISO8601(lastUpdated, tm);
-  time_t utcTime = makeTime(tm);
-  time_t localTime = applyTimezoneOffset(utcTime, TIME_ZONE_OFFSET);
-  createTimeString(localTime, lastUpdated);
+  // Compute price/percent change
+  priceChange = (btcusd - zeroLinePrice);
+  percentChange = ((btcusd - zeroLinePrice) / zeroLinePrice) * 100.0;
+  Serial.printf("Percent change: %.2f%%\n", percentChange);
 }
 
-void getCurrentBitcoinCandle()
-{
-  String currentCandleURL;
-  
-  int64_t start = (lastUpdatedTime / 86400) * 86400; /* start of the day */
-  int64_t end = lastUpdatedTime; /* now */
-  
-  /* Construct the Coinbase API URL */
-  currentCandleURL = basehistoryURL + "?start=" + String(start) + "&end=" + String(end) + "&granularity=86400";
-  
-  Serial.print("Getting currentl candle ... ");
-  Serial.println(currentCandleURL);
+void getCurrentBitcoinCandle() {
+  int64_t now = (lastUpdatedTime / 60) * 60;
+  int64_t start = now - 60;
+  int64_t end = now;
+
+  // --- Fetch current candle ---
+  String currentCandleURL = basehistoryURL + "?start=" + String(start) + "&end=" + String(end) + "&granularity=60";
+  Serial.println("Getting current candle: " + currentCandleURL);
 
   http.begin(currentCandleURL);
   int httpCode = http.GET();
-  StaticJsonDocument<1000> doc;
-  DeserializationError error = deserializeJson(doc, http.getString());
+  StaticJsonDocument<1000> currentDoc;
+  DeserializationError error = deserializeJson(currentDoc, http.getString());
+  http.end();
 
-  if (error)
-  {
-    Serial.print(F("deserializeJson(History) Failed "));
-    Serial.println(error.f_str());
-    delay(2500);
+  JsonArray currentArray = currentDoc.as<JsonArray>();
+  if (error || currentArray.size() == 0) {
+    Serial.println("Current candle fetch failed.");
     return;
   }
 
-  Serial.print("HTTP Status Code: ");
-  Serial.println(httpCode);
+  // Update last entry in chart
+  pricehistory[historylength - 1][0] = currentArray[0][1].as<double>(); // Low
+  pricehistory[historylength - 1][1] = currentArray[0][2].as<double>(); // High
+  pricehistory[historylength - 1][2] = currentArray[0][3].as<double>(); // Open
+  pricehistory[historylength - 1][3] = currentArray[0][4].as<double>(); // Close
 
-  pricehistory[30][0] = doc[0][1].as<double>(); /* Low */
-  pricehistory[30][1] = doc[0][2].as<double>(); /* High */
-  pricehistory[30][2] = doc[0][3].as<double>(); /* Open */
-  pricehistory[30][3] = doc[0][4].as<double>(); /* Close */
-    
-  http.end();
-
-  Serial.print("BTCUSD Price Current: ");
-  Serial.print(pricehistory[30][3]);
-  Serial.println();
+  Serial.print("BTCUSD Current Close: ");
+  Serial.println(pricehistory[historylength - 1][3]);
 }
 
 void getBitcoinHistory()
 {
   String historyURL;
   
-  int64_t start = lastUpdatedTime - (31 * 24 * 60 * 60); /* 30 days ago */
-  int64_t end = lastUpdatedTime - (1 * 24 * 60 * 60); /* 1 day ago */
+  int64_t end = (lastUpdatedTime / granularity) * granularity;
+  int64_t start = end - (historylength * granularity);
   
   /* Construct the Coinbase API URL */
-  historyURL = basehistoryURL + "?start=" + String(start) + "&end=" + String(end) + "&granularity=86400";
+  historyURL = basehistoryURL + "?start=" + String(start) + "&end=" + String(end) + "&granularity=" + String(granularity);
   
   Serial.print("Getting history... ");
   Serial.println(historyURL);
@@ -223,6 +281,7 @@ void getBitcoinHistory()
   int httpCode = http.GET();
   StaticJsonDocument<5000> doc;
   DeserializationError error = deserializeJson(doc, http.getString());
+  http.end();
 
   if (error)
   {
@@ -236,46 +295,31 @@ void getBitcoinHistory()
   Serial.println(httpCode);
 
   /* Coinbase returns an array of arrays [timestamp, low, high, open, close, volume] */
-  historylength = 30;
+  JsonArray coinbase_array = doc.as<JsonArray>();
+  uint8_t array_count = coinbase_array.size();
 
-  for (JsonArray candle : doc.as<JsonArray>()) 
+  for (int i = 0; i < array_count && i < historylength; i++) 
   {
-    historylength = historylength - 1;
+    JsonArray candle = coinbase_array[array_count - 1 - i];
 
-    pricehistory[historylength][0] = candle[1].as<double>(); /* Low */
-    pricehistory[historylength][1] = candle[2].as<double>(); /* High */
-    pricehistory[historylength][2] = candle[3].as<double>(); /* Open */
-    pricehistory[historylength][3] = candle[4].as<double>(); /* Close */
+    pricehistory[i][0] = candle[1].as<double>(); // Low
+    pricehistory[i][1] = candle[2].as<double>(); // High
+    pricehistory[i][2] = candle[3].as<double>(); // Open
+    pricehistory[i][3] = candle[4].as<double>(); // Close
   }
-    
-  http.end();
-
-  historylength = 31;
 
   history_min = 999999;
   history_max = 0;
 
-  /* Find min and max price */
-  if (GRAPH_MODE == 1)
-  {
-    for (int i = 0; i < historylength ; i++)
-    {
-      if (pricehistory[i][1] > history_max) history_max = pricehistory[i][1];
-      if (pricehistory[i][0] < history_min) history_min = pricehistory[i][0];
-    }
-  }
-  else
-  {
-    for (int i = 0; i < historylength; i++)
-    {
-      if (pricehistory[i][3] > history_max) history_max = pricehistory[i][3];
-      if (pricehistory[i][3] < history_min) history_min = pricehistory[i][3];
-    }
+  for (int i = 0; i < array_count && i < historylength; i++) {
+    double low = (GRAPH_MODE == 1) ? pricehistory[i][0] : pricehistory[i][3];
+    double high = (GRAPH_MODE == 1) ? pricehistory[i][1] : pricehistory[i][3];
+    if (low < history_min) history_min = low;
+    if (high > history_max) history_max = high;
   }
 
   Serial.print("BTCUSD Price History: ");
-  for (int i = 0; i < historylength; i++)
-  {
+  for (int i = 0; i < array_count && i < historylength; i++) {
     Serial.print(pricehistory[i][3]);
     Serial.print(", ");
   }
@@ -289,7 +333,7 @@ void updateDisplay()
   uint16_t x, y, h;
   String str;
 
-  uint16_t y_offset = 43;
+  uint16_t y_offset = 40;
 
   display.setRotation(1);
   display.setFullWindow();
@@ -302,11 +346,11 @@ void updateDisplay()
 
     /* Draw current Bitcoin value */
     display.setFont(&Jura_Bold30pt7b);
-    str = String(btcusd, 0);
+    str = createPriceString(btcusd, false);
     //str = 999999;
     display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
-    x = ((display.width() - tbw) / 2) - tbx + 30;
-    y = y_offset + 24;
+    x = ((display.width() - tbw) / 2) - tbx + 28;
+    y = y_offset + 23;
     display.setCursor(x, y);
     display.print(str);
 
@@ -319,16 +363,23 @@ void updateDisplay()
     display.fillRoundRect(7, y_offset + 5, 52, 3, 1, TEXT_COLOR);
 
     /* Draw last update date and time */
-    display.setFont(&Jura_Regular8pt7b);
-    display.getTextBounds(lastUpdated, 0, 0, &tbx, &tby, &tbw, &tbh);
-    x = ((display.width() - tbw) / 2) - tbx;
-    y = 17;
+    display.setFont(&Jura_Regular7pt7b);
+    display.getTextBounds(lastUpdatedDateStr, 0, 0, &tbx, &tby, &tbw, &tbh);
+    x = 5;
+    y = 15;
     display.setCursor(x, y);
-    display.print(lastUpdated);
+    display.print(lastUpdatedDateStr);
 
-    /* Draw 30-days history chart */
+    display.setFont(&Jura_Regular7pt7b);
+    display.getTextBounds(lastUpdatedTimeStr, 0, 0, &tbx, &tby, &tbw, &tbh);
+    x = (display.width() - tbw) - 8;
+    y = 15;
+    display.setCursor(x, y);
+    display.print(lastUpdatedTimeStr);
+
+    /* Draw chart */
     uint16_t graph_x = 72;
-    uint16_t graph_y = 80;
+    uint16_t graph_y = 82;
     uint16_t graph_w = 210;
     uint16_t graph_h = 38;
     uint16_t x0, x1, y0, y1;
@@ -337,16 +388,16 @@ void updateDisplay()
     graph_step = ((double)graph_w - 2) / (double)(historylength - 1);
     graph_delta = ((double)graph_h - 2) / (history_max - history_min);
 
-    /* 30-days maximum */
-    str = String(history_max, 0);
+    /* History maximum */
+    str = createPriceString(history_max, false);
     display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
-    display.setCursor(graph_x - tbw - 10, graph_y + 9);
+    display.setCursor(graph_x - tbw - 6, graph_y + 4);
     display.print(str);
 
-    /* 30-days minimum */
-    str = String(history_min, 0);
+    /* History minimum */
+    str = createPriceString(history_min, false);
     display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
-    display.setCursor(graph_x - tbw - 10, graph_y + graph_h);
+    display.setCursor(graph_x - tbw - 6, graph_y + graph_h);
     display.print(str);
 
     /* Doted border */
@@ -370,28 +421,35 @@ void updateDisplay()
 
       for (int i = 0; i < (historylength); i++)
       {
+        // Centered x-coordinate for the candle
         x0 = (uint16_t)(graph_x + graph_step - 2 + i * graph_step);
-        x1 = (uint16_t)(graph_x + graph_step - 2 + i * graph_step);
-        y0 = (uint16_t)(graph_y + graph_h - 1 - ((pricehistory[i][0] - history_min) * graph_delta));
-        y1 = (uint16_t)(graph_y + graph_h - 1 - ((pricehistory[i][1] - history_min) * graph_delta));
+        x1 = x0;
+
+        // Wick: from low to high
+        y0 = (uint16_t)(graph_y + graph_h - 1 - ((pricehistory[i][0] - history_min) * graph_delta)); // low
+        y1 = (uint16_t)(graph_y + graph_h - 1 - ((pricehistory[i][1] - history_min) * graph_delta)); // high
         display.drawLine(x0, y0, x1, y1, TEXT_COLOR);
 
-        if (pricehistory[i][3] > pricehistory[i][2])
-        {
-          /* Close > Open */
-          y0 = (uint16_t)(graph_y + graph_h - 1 - ((pricehistory[i][3] - history_min) * graph_delta));
-          h = (uint16_t)((pricehistory[i][3] - pricehistory[i][2]) * graph_delta);
+        // Body
+        double open = pricehistory[i][2];
+        double close = pricehistory[i][3];
+        double top = max(open, close);
+        double bottom = min(open, close);
+
+        y0 = (uint16_t)(graph_y + graph_h - 1 - ((top - history_min) * graph_delta));
+        h = (uint16_t)((top - bottom) * graph_delta);
+
+        // Handle zero-height candles
+        if (h == 0) h = 1;
+
+        if (close > open) {
+          // Green candle (up) — use outline with background fill
           display.drawRect(x0 - 2, y0, 5, h, TEXT_COLOR);
-          if (h > 2)
-          {
+          if (h > 2) {
             display.fillRect(x0 - 1, y0 + 1 , 3, h - 2, BACKGROUND_COLOR);
           }
-        }
-        else
-        {
-          /* Open > Close */
-          y0 = (uint16_t)(graph_y + graph_h - 1 - ((pricehistory[i][2] - history_min) * graph_delta));
-          h = (uint16_t)((pricehistory[i][2] - pricehistory[i][3]) * graph_delta);
+        } else {
+          // Red candle (down) — solid fill
           display.fillRect(x0 - 2, y0, 5, h, TEXT_COLOR);
         }
       }
@@ -414,6 +472,40 @@ void updateDisplay()
         display.drawLine(x0, y0 + 1, x1, y1 + 1, TEXT_COLOR);
       }
     }
+
+    /* Draw Zero Price Line */
+    int y_zero = graph_y + graph_h - 1 - ((zeroLinePrice - history_min) * graph_delta);
+    // for (int x = graph_x; x < graph_x + graph_w; x += 2) {
+    //   display.drawPixel(x, y_zero, TEXT_COLOR);
+    // }
+    display.drawLine(graph_x, y_zero, graph_x + graph_w - 1, y_zero, TEXT_COLOR);  // Price line
+    display.drawLine(graph_x - 3, y_zero, graph_x - 1, y_zero, TEXT_COLOR); // Price Dash
+
+    /* Chart Style */
+    str = modeLabel[chartMode];
+    display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
+    x = graph_x;
+    y = graph_y - 2;
+    display.setCursor(x, y);
+    display.setFont(&Jura_Regular7pt7b);
+    display.print(str);
+
+    /* Percent Change */
+    str = formatPercentChange(percentChange);
+    display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
+    x = (graph_x + graph_w) - tbw;
+    y = graph_y - 4;
+    display.setCursor(x, y);
+    display.print(str);
+
+    /* Price Change */
+    str = createPriceString(priceChange, true);
+    display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
+    x = x - tbw - 6;
+    y = graph_y - 4;
+    display.setCursor(x, y);
+    display.print(str);
+
   }
   while (display.nextPage());
 }
@@ -439,9 +531,58 @@ time_t applyTimezoneOffset(const time_t utcTime, const int timezoneOffset)
 
 void createTimeString(const time_t time, String &timeString)
 {
-  char buffer[20];
-  sprintf(buffer, "%d-%02d-%02d %02d:%02d:%02d", year(time), month(time), day(time), hour(time), minute(time), second(time));
+
+  char buffer[32];
+  sprintf(buffer, "%02d:%02d ", hour(time), minute(time));
+  strcat(buffer, timezone);
   timeString = String(buffer);
+}
+
+void createDateString(const time_t time, String &dateString)
+{
+  int d = day(time);
+  const char* suffix = getDaySuffix(d);
+  const char* m = monthNames[month(time) - 1];
+
+  char buffer[32];
+  sprintf(buffer, "%s %d%s", m, d, suffix);
+  dateString = String(buffer);
+}
+
+String createPriceString(double number, bool showSign) {
+  String str = String(number, 0);  // no decimals
+  String result = "";
+
+  bool isNegative = str[0] == '-';
+  int startIdx = isNegative ? 1 : 0;
+  int len = str.length();
+
+  for (int i = startIdx; i < len; i++) {
+    if (i > startIdx && ((len - i) % 3 == 0)) {
+      result += ',';
+    }
+    result += str[i];
+  }
+
+  if (isNegative) {
+    result = "-" + result;
+  } else if (showSign){
+    result = "+" + result;
+  }
+
+  return result;
+}
+
+String formatPercentChange(double percent) {
+  char buffer[16];
+
+  if (percent >= 0) {
+    sprintf(buffer, "[+%.2f%%]", percent);
+  } else {
+    sprintf(buffer, "[%.2f%%]", percent);
+  }
+
+  return String(buffer);
 }
 
 void displayError()
