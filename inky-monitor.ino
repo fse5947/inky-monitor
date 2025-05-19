@@ -18,15 +18,19 @@
 GxEPD2_BW<GxEPD2_290_BS, GxEPD2_290_BS::HEIGHT> display(GxEPD2_290_BS(/*CS=D1*/ 3, /*DC=D3*/ 5, /*RES=D0*/ 2, /*BUSY=D5*/ 7)); // DEPG0290BS 128x296, SSD1680
 
 const int httpsPort = 443;
-const String url_usd = "https://api.coinbase.com/v2/prices/BTC-USD/spot";
-const String timeURL = "https://api.coinbase.com/v2/time";
-const String basehistoryURL = "https://api.exchange.coinbase.com/products/BTC-USD/candles";
 const String cryptoCode = "BTC";
+const String fiatCode = "USD";
+const String url_usd = "https://api.coinbase.com/v2/prices/" + cryptoCode + "-" + fiatCode + "/spot";
+const String timeURL = "https://api.coinbase.com/v2/time";
+const String basehistoryURL = "https://api.exchange.coinbase.com/products/" + cryptoCode + "-" + fiatCode + "/candles";
+const String exchangeURL = "https://api.coinbase.com/v2/exchange-rates?currency=USD"; //TODO: Add support for other currencies
 
 double btcusd;
 double priceChange;
 double percentChange;
 double zeroLinePrice;
+
+bool chartAvailable = true;
 
 double pricehistory[MAX_HISTORY][4];
 double history_min, history_max;
@@ -102,8 +106,8 @@ void loop()
     getTime();
     getCurrentBitcoinPrice();
     getPercentChange();
-    getCurrentBitcoinCandle();
     getBitcoinHistory();
+    calculateMinMax();
     updateDisplay();
   }
   else
@@ -220,6 +224,7 @@ void getPercentChange() {
   JsonArray oldArray = oldDoc.as<JsonArray>();
   if (error || oldArray.size() == 0) {
     Serial.println("Old candle fetch failed.");
+    chartAvailable = false;
     return;
   }
 
@@ -233,36 +238,36 @@ void getPercentChange() {
   Serial.printf("Percent change: %.2f%%\n", percentChange);
 }
 
-void getCurrentBitcoinCandle() {
-  int64_t now = (lastUpdatedTime / 60) * 60;
-  int64_t start = now - 60;
-  int64_t end = now;
+// void getCurrentBitcoinCandle() {
+//   int64_t now = (lastUpdatedTime / 60) * 60;
+//   int64_t start = now - 60;
+//   int64_t end = now;
 
-  // --- Fetch current candle ---
-  String currentCandleURL = basehistoryURL + "?start=" + String(start) + "&end=" + String(end) + "&granularity=60";
-  Serial.println("Getting current candle: " + currentCandleURL);
+//   // --- Fetch current candle ---
+//   String currentCandleURL = basehistoryURL + "?start=" + String(start) + "&end=" + String(end) + "&granularity=60";
+//   Serial.println("Getting current candle: " + currentCandleURL);
 
-  http.begin(currentCandleURL);
-  int httpCode = http.GET();
-  StaticJsonDocument<1000> currentDoc;
-  DeserializationError error = deserializeJson(currentDoc, http.getString());
-  http.end();
+//   http.begin(currentCandleURL);
+//   int httpCode = http.GET();
+//   StaticJsonDocument<1000> currentDoc;
+//   DeserializationError error = deserializeJson(currentDoc, http.getString());
+//   http.end();
 
-  JsonArray currentArray = currentDoc.as<JsonArray>();
-  if (error || currentArray.size() == 0) {
-    Serial.println("Current candle fetch failed.");
-    return;
-  }
+//   JsonArray currentArray = currentDoc.as<JsonArray>();
+//   if (error || currentArray.size() == 0) {
+//     Serial.println("Current candle fetch failed.");
+//     return;
+//   }
 
-  // Update last entry in chart
-  pricehistory[historylength - 1][0] = currentArray[0][1].as<double>(); // Low
-  pricehistory[historylength - 1][1] = currentArray[0][2].as<double>(); // High
-  pricehistory[historylength - 1][2] = currentArray[0][3].as<double>(); // Open
-  pricehistory[historylength - 1][3] = currentArray[0][4].as<double>(); // Close
+//   // Update last entry in chart
+//   pricehistory[historylength - 1][0] = currentArray[0][1].as<double>(); // Low
+//   pricehistory[historylength - 1][1] = currentArray[0][2].as<double>(); // High
+//   pricehistory[historylength - 1][2] = currentArray[0][3].as<double>(); // Open
+//   pricehistory[historylength - 1][3] = currentArray[0][4].as<double>(); // Close
 
-  Serial.print("BTCUSD Current Close: ");
-  Serial.println(pricehistory[historylength - 1][3]);
-}
+//   Serial.print("BTCUSD Current Close: ");
+//   Serial.println(pricehistory[historylength - 1][3]);
+// }
 
 void getBitcoinHistory()
 {
@@ -298,32 +303,41 @@ void getBitcoinHistory()
   JsonArray coinbase_array = doc.as<JsonArray>();
   uint8_t array_count = coinbase_array.size();
 
-  for (int i = 0; i < array_count && i < historylength; i++) 
+  for (int i = 0;i < historylength; i++) 
   {
-    JsonArray candle = coinbase_array[array_count - 1 - i];
-
-    pricehistory[i][0] = candle[1].as<double>(); // Low
-    pricehistory[i][1] = candle[2].as<double>(); // High
-    pricehistory[i][2] = candle[3].as<double>(); // Open
-    pricehistory[i][3] = candle[4].as<double>(); // Close
+    JsonArray candle = coinbase_array[i];
+    int idx = historylength - 1 - i;
+    pricehistory[idx][0] = candle[1].as<double>(); // Low
+    pricehistory[idx][1] = candle[2].as<double>(); // High
+    pricehistory[idx][2] = candle[3].as<double>(); // Open
+    pricehistory[idx][3] = candle[4].as<double>(); // Close
   }
 
+  Serial.print("BTCUSD Price History: ");
+  for (int i = 0;i < historylength; i++) {
+    Serial.print(pricehistory[i][3]);
+    if (i < historylength) {
+      Serial.print(", ");
+    }
+  }
+  Serial.println();
+}
+
+void calculateMinMax() {
   history_min = 999999;
   history_max = 0;
 
-  for (int i = 0; i < array_count && i < historylength; i++) {
+  for (int i = 0; i < historylength; i++) {
     double low = (GRAPH_MODE == 1) ? pricehistory[i][0] : pricehistory[i][3];
     double high = (GRAPH_MODE == 1) ? pricehistory[i][1] : pricehistory[i][3];
     if (low < history_min) history_min = low;
     if (high > history_max) history_max = high;
   }
 
-  Serial.print("BTCUSD Price History: ");
-  for (int i = 0; i < array_count && i < historylength; i++) {
-    Serial.print(pricehistory[i][3]);
-    Serial.print(", ");
-  }
-  Serial.println();
+  Serial.print("Max Price: ");
+  Serial.println(history_max);
+  Serial.print("Min Price: ");
+  Serial.println(history_min);
 }
 
 void updateDisplay()
@@ -346,8 +360,7 @@ void updateDisplay()
 
     /* Draw current Bitcoin value */
     display.setFont(&Jura_Bold30pt7b);
-    str = createPriceString(btcusd, false);
-    //str = 999999;
+    str = createPriceString(btcusd, false, 3);
     display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
     x = ((display.width() - tbw) / 2) - tbx + 28;
     y = y_offset + 23;
@@ -355,11 +368,18 @@ void updateDisplay()
     display.print(str);
 
     /* Draw BTC/USD symbols */
+    display.getTextBounds(cryptoCode, 0, 0, &tbx, &tby, &tbw, &tbh);
     display.setFont(&Jura_Bold12pt7b);
-    display.setCursor(10, y_offset + 0);
-    display.print("BTC");
-    display.setCursor(8, y_offset + 26);
-    display.print("USD");
+    if (cryptoCode.length() > 3) {
+      display.setCursor(2, y_offset + 0);
+    } else {
+      display.setCursor(10, y_offset + 0);
+    }
+    display.print(cryptoCode);
+
+    display.getTextBounds(fiatCode, 0, 0, &tbx, &tby, &tbw, &tbh);
+    display.setCursor(10, y_offset + 26);
+    display.print(fiatCode);
     display.fillRoundRect(7, y_offset + 5, 52, 3, 1, TEXT_COLOR);
 
     /* Draw last update date and time */
@@ -388,17 +408,19 @@ void updateDisplay()
     graph_step = ((double)graph_w - 2) / (double)(historylength - 1);
     graph_delta = ((double)graph_h - 2) / (history_max - history_min);
 
-    /* History maximum */
-    str = createPriceString(history_max, false);
-    display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
-    display.setCursor(graph_x - tbw - 6, graph_y + 4);
-    display.print(str);
+    if (chartAvailable) {
+      /* History maximum */
+      str = createPriceString(history_max, false, 3);
+      display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
+      display.setCursor(graph_x - tbw - 6, graph_y + 3);
+      display.print(str);
 
-    /* History minimum */
-    str = createPriceString(history_min, false);
-    display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
-    display.setCursor(graph_x - tbw - 6, graph_y + graph_h);
-    display.print(str);
+      /* History minimum */
+      str = createPriceString(history_min, false, 3);
+      display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
+      display.setCursor(graph_x - tbw - 6, graph_y + graph_h);
+      display.print(str);
+    }
 
     /* Doted border */
     for (int i = 0; i <= ((graph_w) / 2); i++)
@@ -413,7 +435,7 @@ void updateDisplay()
       display.drawPixel(graph_x + graph_w, graph_y + 2 * i, TEXT_COLOR);
     }
 
-    if (GRAPH_MODE == 1)
+    if (GRAPH_MODE == 1 && chartAvailable)
     {
       /* Candle graph */
       graph_step = ((double)graph_w - 2) / (double)(historylength);
@@ -454,7 +476,7 @@ void updateDisplay()
         }
       }
     }
-    else
+    else if (GRAPH_MODE == 0 && chartAvailable)
     {
       /* Graph line */
       graph_step = ((double)graph_w - 2) / (double)(historylength - 1);
@@ -471,24 +493,32 @@ void updateDisplay()
         display.drawLine(x0, y0 - 1, x1, y1 - 1, TEXT_COLOR);
         display.drawLine(x0, y0 + 1, x1, y1 + 1, TEXT_COLOR);
       }
+    } else 
+    {
+      str = "CHART UNAVAILABLE";
+      display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
+      display.setCursor(graph_x + graph_w/2 - tbw/2 , graph_y + graph_h/2 + tbh/2);
+      display.print(str);
     }
 
-    /* Draw Zero Price Line */
-    int y_zero = graph_y + graph_h - 1 - ((zeroLinePrice - history_min) * graph_delta);
-    // for (int x = graph_x; x < graph_x + graph_w; x += 2) {
-    //   display.drawPixel(x, y_zero, TEXT_COLOR);
-    // }
-    display.drawLine(graph_x, y_zero, graph_x + graph_w - 1, y_zero, TEXT_COLOR);  // Price line
-    display.drawLine(graph_x - 3, y_zero, graph_x - 1, y_zero, TEXT_COLOR); // Price Dash
+    if (chartAvailable) {
+      /* Draw Zero Price Line */
+      int y_zero = graph_y + graph_h - 1 - ((zeroLinePrice - history_min) * graph_delta);
+      // for (int x = graph_x; x < graph_x + graph_w; x += 2) {
+      //   display.drawPixel(x, y_zero, TEXT_COLOR);
+      // }
+      display.drawLine(graph_x, y_zero, graph_x + graph_w - 1, y_zero, TEXT_COLOR);  // Price line
+      display.drawLine(graph_x - 3, y_zero, graph_x - 1, y_zero, TEXT_COLOR); // Price Dash
 
-    /* Chart Style */
-    str = modeLabel[chartMode];
-    display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
-    x = graph_x;
-    y = graph_y - 2;
-    display.setCursor(x, y);
-    display.setFont(&Jura_Regular7pt7b);
-    display.print(str);
+      /* Chart Style */
+      str = modeLabel[chartMode];
+      display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
+      x = graph_x;
+      y = graph_y - 2;
+      display.setCursor(x, y);
+      display.setFont(&Jura_Regular7pt7b);
+      display.print(str);
+    }
 
     /* Percent Change */
     str = formatPercentChange(percentChange);
@@ -499,7 +529,7 @@ void updateDisplay()
     display.print(str);
 
     /* Price Change */
-    str = createPriceString(priceChange, true);
+    str = createPriceString(priceChange, true, 0);
     display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
     x = x - tbw - 6;
     y = graph_y - 4;
@@ -549,28 +579,34 @@ void createDateString(const time_t time, String &dateString)
   dateString = String(buffer);
 }
 
-String createPriceString(double number, bool showSign) {
-  String str = String(number, 0);  // no decimals
+String createPriceString(double number, bool showSign, int decimalPlaces) {
+  bool isNegative = number < 0;
+  if (isNegative) number = -number;
+
+  // Format number string with decimals if < 1000, else as integer
+  String str = (number < 1000.0) ? String(number, decimalPlaces) : String(number,0);
+
+  int dotIndex = str.indexOf('.');
+  String intPart = (dotIndex >= 0) ? str.substring(0, dotIndex) : str;
+  String fracPart = (dotIndex >= 0 && number < 1000.0) ? str.substring(dotIndex) : "";
+
+  // Add commas to integer part
   String result = "";
-
-  bool isNegative = str[0] == '-';
-  int startIdx = isNegative ? 1 : 0;
-  int len = str.length();
-
-  for (int i = startIdx; i < len; i++) {
-    if (i > startIdx && ((len - i) % 3 == 0)) {
+  int len = intPart.length();
+  for (int i = 0; i < len; i++) {
+    if (i > 0 && ((len - i) % 3 == 0)) {
       result += ',';
     }
-    result += str[i];
+    result += intPart[i];
   }
 
   if (isNegative) {
     result = "-" + result;
-  } else if (showSign){
+  } else if (showSign) {
     result = "+" + result;
   }
 
-  return result;
+  return result + fracPart;
 }
 
 String formatPercentChange(double percent) {
