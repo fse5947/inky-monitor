@@ -43,14 +43,15 @@ See my 3D model on [Printables](https://www.printables.com/@mirabatek/models).
 4. Install **esp32** by Espressif Systems in Boards Manager
 5. Install **NTPClient** by Fabrice Weinber in Library Manager
 6. Install **ArduinoJson** by Benoit Blanchon in Library Manager
-7. Install **GxEPD2** Library by Jean-Marc Zingg (with dependencies **Adafruit BusIO** Library, **Adafruit GFX** Library) in Library Manager
-8. Select **XIAO_ESP32-C3** board
-9. Update WiFi credentials (ssid, password), refresh rate, inverted mode in inky-monitor-config.h file
-10. Click on Verify button
-11. Connect the ESP32-C3 over the USB cable to the PC
-12. Click on Upload button
-13. Wait until all data are written
-14. Device should be now properly configured and display actual data
+7. Install **GxEPD2** by Jean-Marc Zingg (with dependencies **Adafruit BusIO** Library, **Adafruit GFX** Library) in Library Manager
+8. Install **Time** by Michael Margolis in the Library Manager
+9. Select **XIAO_ESP32-C3** board
+10. Update WiFi credentials (ssid, password), refresh rate, inverted mode in inky-monitor-config.h file
+11. Click on Verify button
+12. Connect the ESP32-C3 over the USB cable to the PC
+13. Click on Upload button
+14. Wait until all data are written
+15. Device should be now properly configured and display actual data
 
 ### Option 2 - Prebuild binary with configuration portal:
 1. Download compiled firmware from GitHub Releases section
