@@ -1,0 +1,15 @@
+[submodule "esp32/lil_ticker/components/ArduinoJson"]
+	path = esp32/lil_ticker/components/ArduinoJson
+	url = git@github.com:fse5947/ArduinoJson.git
+[submodule "esp32/lil_ticker/components/Adafruit_BusIO"]
+	path = esp32/lil_ticker/components/Adafruit_BusIO
+	url = git@github.com:fse5947/Adafruit_BusIO.git
+[submodule "esp32/lil_ticker/components/Adafruit-GFX-Library"]
+	path = esp32/lil_ticker/components/Adafruit-GFX-Library
+	url = git@github.com:fse5947/Adafruit-GFX-Library.git
+[submodule "esp32/lil_ticker/components/GxEPD2"]
+	path = esp32/lil_ticker/components/GxEPD2
+	url = git@github.com:fse5947/GxEPD2.git
+[submodule "esp32/lil_ticker/components/arduino_time"]
+	path = esp32/lil_ticker/components/arduino_time
+	url = git@github.com:fse5947/arduino_time.git
