@@ -23,7 +23,8 @@
 #pragma once
 
 #include "soc/soc_caps.h"
-#if SOC_WIFI_SUPPORTED
+#include "sdkconfig.h"
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED
 
 #include "esp_wifi_types.h"
 #include "WiFiType.h"
@@ -59,6 +60,8 @@ public:
   void _onApEvent(int32_t event_id, void *event_data);
 
 protected:
+  network_event_handle_t _wifi_ap_event_handle;
+
   size_t printDriverInfo(Print &out) const;
 
   friend class WiFiGenericClass;
@@ -100,8 +103,10 @@ public:
   IPAddress softAPSubnetMask();
   uint8_t softAPSubnetCIDR();
 
+#if CONFIG_LWIP_IPV6
   bool softAPenableIPv6(bool enable = true);
   IPAddress softAPlinkLocalIPv6();
+#endif
 
   const char *softAPgetHostname();
   bool softAPsetHostname(const char *hostname);

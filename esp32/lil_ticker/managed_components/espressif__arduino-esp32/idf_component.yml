@@ -2,6 +2,10 @@ dependencies:
   chmorgan/esp-libhelix-mp3:
     require: public
     version: 1.0.3
+  espressif/cbor:
+    rules:
+    - if: target not in [esp32c2, esp32p4]
+    version: 0.6.0~1
   espressif/esp-dsp:
     rules:
     - if: target != esp32c2
@@ -14,23 +18,41 @@ dependencies:
     - if: target in [esp32s3]
     version: ^1.4.2
   espressif/esp-zboss-lib:
+    require: public
     rules:
-    - if: target != esp32c2
-    version: ^1.0.1
+    - if: target not in [esp32c2, esp32p4]
+    version: ==1.6.3
   espressif/esp-zigbee-lib:
+    require: public
     rules:
-    - if: target != esp32c2
-    version: ^1.0.1
+    - if: target not in [esp32c2, esp32p4]
+    version: ==1.6.3
+  espressif/esp_diag_data_store:
+    rules:
+    - if: target not in [esp32c2, esp32p4]
+    version: 1.0.2
+  espressif/esp_diagnostics:
+    rules:
+    - if: target not in [esp32c2, esp32p4]
+    version: 1.2.1
+  espressif/esp_hosted:
+    rules:
+    - if: target == esp32p4
+    version: ^0.0.25
   espressif/esp_insights:
     rules:
-    - if: target != esp32c2
-    version: ^1.2.1
+    - if: target not in [esp32c2, esp32p4]
+    version: 1.2.2
   espressif/esp_modem:
     version: ^1.1.0
   espressif/esp_rainmaker:
     rules:
-    - if: target != esp32c2
-    version: ^1.0.0
+    - if: target not in [esp32c2, esp32p4]
+    version: 1.5.2
+  espressif/esp_wifi_remote:
+    rules:
+    - if: target == esp32p4
+    version: ^0.4.1
   espressif/libsodium:
     require: public
     version: ^1.0.20~1
@@ -38,16 +60,16 @@ dependencies:
     require: public
     version: ^1.2.3
   espressif/network_provisioning:
-    version: ~1.0.0
+    version: 1.0.2
   espressif/qrcode:
     rules:
-    - if: target != esp32c2
-    version: ^0.1.0~1
+    - if: target not in [esp32c2, esp32p4]
+    version: 0.1.0~2
   espressif/rmaker_common:
     rules:
-    - if: target != esp32c2
-    version: ^1.4.6
-  idf: '>=5.1,<5.2'
+    - if: target not in [esp32c2, esp32p4]
+    version: 1.4.6
+  idf: '>=5.3,<5.5'
   joltwallet/littlefs:
     version: ^1.10.2
 description: Arduino core for ESP32, ESP32-S and ESP32-C series of SoCs
@@ -81,10 +103,11 @@ files:
   - variants/esp32c3/**/*
   - variants/esp32c6/**/*
   - variants/esp32h2/**/*
+  - variants/esp32p4/**/*
 license: LGPL-2.1
 repository: git://github.com/espressif/arduino-esp32.git
 repository_info:
-  commit_sha: e99f1fdc6d12e07324be6e956318496e6a0bfac3
+  commit_sha: de184bd0cbb6f8d6c68497236657a1cb591f5ce4
   path: .
 tags:
 - arduino
@@ -96,5 +119,6 @@ targets:
 - esp32c3
 - esp32c6
 - esp32h2
+- esp32p4
 url: https://github.com/espressif/arduino-esp32
-version: 3.1.0-rc3
+version: 3.2.0

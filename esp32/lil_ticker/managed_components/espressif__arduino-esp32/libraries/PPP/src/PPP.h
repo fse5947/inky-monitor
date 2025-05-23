@@ -1,7 +1,11 @@
 #pragma once
 
 #include "sdkconfig.h"
-#if CONFIG_LWIP_PPP_SUPPORT
+#if defined __has_include && __has_include("esp_modem_c_api_types.h")
+#define ARDUINO_HAS_ESP_MODEM 1
+#endif
+
+#if CONFIG_LWIP_PPP_SUPPORT && ARDUINO_HAS_ESP_MODEM
 #include "Network.h"
 #include "esp_modem_c_api_types.h"
 
@@ -104,10 +108,10 @@ private:
   int _tx_buffer_size;
   esp_modem_dce_mode_t _mode;
   uint8_t _uart_num;
+  network_event_handle_t _ppp_event_handle;
 
   static bool pppDetachBus(void *bus_pointer);
 };
 
 extern PPPClass PPP;
-
-#endif /* CONFIG_LWIP_PPP_SUPPORT */
+#endif /* CONFIG_LWIP_PPP_SUPPORT && ARDUINO_HAS_ESP_MODEM */

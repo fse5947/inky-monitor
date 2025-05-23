@@ -7,7 +7,7 @@
 #include "WiFi.h"
 #include "WiFiGeneric.h"
 #include "WiFiAP.h"
-#if SOC_WIFI_SUPPORTED
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -87,6 +87,7 @@ static void _onApArduinoEvent(arduino_event_t *ev) {
   }
   log_v("Arduino AP Event: %d - %s", ev->event_id, Network.eventName(ev->event_id));
   if (ev->event_id == ARDUINO_EVENT_WIFI_AP_START) {
+#if CONFIG_LWIP_IPV6
     if (_ap_network_if->getStatusBits() & ESP_NETIF_WANT_IP6_BIT) {
       esp_err_t err = esp_netif_create_ip6_linklocal(_ap_network_if->netif());
       if (err != ESP_OK) {
@@ -95,6 +96,7 @@ static void _onApArduinoEvent(arduino_event_t *ev) {
         log_v("Enabled IPv6 Link Local on %s", _ap_network_if->desc());
       }
     }
+#endif
   }
 }
 
@@ -146,7 +148,7 @@ void APClass::_onApEvent(int32_t event_id, void *event_data) {
   }
 }
 
-APClass::APClass() {
+APClass::APClass() : _wifi_ap_event_handle(0) {
   _ap_network_if = this;
 }
 
@@ -161,7 +163,7 @@ bool APClass::onEnable() {
     return false;
   }
   if (_esp_netif == NULL) {
-    Network.onSysEvent(_onApArduinoEvent);
+    _wifi_ap_event_handle = Network.onSysEvent(_onApArduinoEvent);
     _esp_netif = get_esp_interface_netif(ESP_IF_WIFI_AP);
     /* attach to receive events */
     initNetif(ESP_NETIF_ID_AP);
@@ -170,7 +172,8 @@ bool APClass::onEnable() {
 }
 
 bool APClass::onDisable() {
-  Network.removeEvent(_onApArduinoEvent);
+  Network.removeEvent(_wifi_ap_event_handle);
+  _wifi_ap_event_handle = 0;
   // we just set _esp_netif to NULL here, so destroyNetif() does not try to destroy it.
   // That would be done by WiFi.enableAP(false) if STA is not enabled, or when it gets disabled
   _esp_netif = NULL;

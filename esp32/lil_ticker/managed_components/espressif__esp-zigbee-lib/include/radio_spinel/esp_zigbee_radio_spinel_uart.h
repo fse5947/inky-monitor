@@ -7,7 +7,7 @@
 #pragma once
 
 #include "esp_err.h"
-#include "platform/esp_zigbee_platform.h"
+#include "zb_config_platform.h"
 
 #ifdef __cplusplus
 extern "C" {

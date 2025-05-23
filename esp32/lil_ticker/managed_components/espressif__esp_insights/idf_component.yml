@@ -16,7 +16,7 @@ description: Firmware agent for ESP Insights, which is a remote diagnostics solu
 issues: https://github.com/espressif/esp-insights/issues
 repository: git://github.com/espressif/esp-insights.git
 repository_info:
-  commit_sha: 76a3ab9a6325af6d23f041c28dfdc1c5377edea0
+  commit_sha: 36c8bfc71268559b50db3e6741a19ba97af769a4
   path: components/esp_insights
 url: https://github.com/espressif/esp-insights/tree/main/components/esp_insights
-version: 1.2.4
+version: 1.2.2

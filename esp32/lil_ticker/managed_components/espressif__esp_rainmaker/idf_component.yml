@@ -29,7 +29,7 @@ documentation: https://rainmaker.espressif.com/
 issues: https://github.com/espressif/esp-rainmaker/issues
 repository: git://github.com/espressif/esp-rainmaker.git
 repository_info:
-  commit_sha: cb5f1dd13f6d868851e6aa92d5685ba09e330625
+  commit_sha: 6ed65d92fc732367b0046d22b4408036c31a103d
   path: components/esp_rainmaker
 url: https://github.com/espressif/esp-rainmaker/tree/master/components/esp_rainmaker
-version: 1.5.4
+version: 1.5.2
