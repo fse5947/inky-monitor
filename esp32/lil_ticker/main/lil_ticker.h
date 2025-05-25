@@ -63,7 +63,6 @@ double history_min, history_max;
 int historylength;
 int granularity;
 
-WiFiClient client;
 HTTPClient http;
 
 String formattedDate;

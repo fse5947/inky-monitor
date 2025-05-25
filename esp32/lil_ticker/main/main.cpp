@@ -13,16 +13,31 @@
 
 #include "lil_ticker.h"
 
-void setup() {
-  int i = 0;
+extern "C" void app_main()
+{
+  initArduino();
+
   Serial.begin(115200);
 
-  display.init(115200, true, 50, false);
+  while(!Serial){
+    ; // wait for serial port to connect
+  }
+
+  int i = 0;
+
+  pinMode(2, OUTPUT);
+  delay(500);
+  pinMode(3, OUTPUT);
+  delay(500);
+  pinMode(GPIO_NUM_5, OUTPUT); //TODO: Doesn't seem to work.
+  delay(500);
 
   WiFi.begin(ssid, password);
 
   Serial.println();
   Serial.print("Connecting to WiFi ");
+
+  display.init(115200, true, 50, false);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -52,28 +67,28 @@ void setup() {
     granularity = 86400;        // 1 day candles
     historylength = 30;
   }
-}
 
-void loop() {
-  if (WiFi.status() == WL_CONNECTED) {
-    getTime();
-    getCurrentBitcoinPrice();
-    getPercentChange();
-    getBitcoinHistory();
-    calculateMinMax();
-    updateDisplay();
-  } else {
-    Serial.println("WiFi Disconnected");
+  while (true) {
+    if (WiFi.status() == WL_CONNECTED) {
+      getTime();
+      getCurrentBitcoinPrice();
+      getPercentChange();
+      getBitcoinHistory();
+      calculateMinMax();
+      updateDisplay();
+    } else {
+      Serial.println("WiFi Disconnected");
+    }
+
+    Serial.println();
+
+    #if (SLEEP_MODE)
+      esp_sleep_enable_timer_wakeup(REFRESH_RATE_S * 1000000);
+      esp_deep_sleep_start();
+    #else
+      delay(REFRESH_RATE_S * 1000);
+    #endif
   }
-
-  Serial.println();
-
-#if (SLEEP_MODE)
-  esp_sleep_enable_timer_wakeup(REFRESH_RATE_S * 1000000);
-  esp_deep_sleep_start();
-#else
-  delay(REFRESH_RATE_S * 1000);
-#endif
 }
 
 const char *getDaySuffix(int day) {

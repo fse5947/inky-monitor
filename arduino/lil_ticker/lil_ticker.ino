@@ -87,6 +87,22 @@ void setup() {
     granularity = 86400;        // 1 day candles
     historylength = 30;
   }
+
+  xTaskCreate(
+        blink1,      // Function name of the task
+        "Blink 1",   // Name of the task (e.g. for debugging)
+        2048,        // Stack size (bytes)
+        NULL,        // Parameter to pass
+        1,           // Task priority
+        NULL         // Task handle
+    );
+}
+
+void blink1(void *parameter) {
+    while(1){
+      Serial.println("RUNNING TASK");
+      vTaskDelay(1000/portTICK_PERIOD_MS);
+    }
 }
 
 void loop() {
