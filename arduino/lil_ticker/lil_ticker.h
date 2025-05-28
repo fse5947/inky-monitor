@@ -12,6 +12,10 @@ const char* monthNames[] = {
 uint8_t chartMode = 0; // 0 = 1D, 1 = 1W, 2 = 1M
 const char* modeLabel[] = {"1D", "1W", "1M"};
 
+const char* currencyOptions[] = {
+  "AUD", "CAD", "CHF", "EUR", "GBP", "JPY", "USD"
+};
+
 /* Refresh Rate in seconds */
 #define REFRESH_RATE_S (300)
 

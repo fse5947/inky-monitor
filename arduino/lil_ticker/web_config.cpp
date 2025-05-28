@@ -63,14 +63,13 @@ void saveConfigToNVS() {
 
 void loadConfigFromNVS() {
   prefs.begin("config", true); // true = read-only            
-  // size_t len = prefs.getBytesLength("settings");
-  // if (len == sizeof(Config)) {
-  //   prefs.getBytes("settings", &config, sizeof(config));
-  //   Serial.printf("Loaded config: led=%d, threshold=%d, mode=%s\n",
-  //                 config.ticker, config.currency, config.timeframe);
-  // } else {
-  //   Serial.println("No valid config found, using defaults.");
-  // }
-  prefs.clear();
+  size_t len = prefs.getBytesLength("settings");
+  if (len == sizeof(Config)) {
+    prefs.getBytes("settings", &config, sizeof(config));
+    Serial.println("Loaded config");
+  } else {
+    Serial.println("No valid config found, using defaults.");
+  }
+  // prefs.clear(); // USE TO DELETE SAVED CONFIG
   prefs.end();
 }

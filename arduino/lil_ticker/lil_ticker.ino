@@ -2,17 +2,17 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <HTTPClient.h>
-// #include <NTPClient.h>
-// #include <WiFiUdp.h>
-#include <ArduinoJson.h>
+#include <ESPmDNS.h>
 #include <GxEPD2_BW.h>
 #include <GxEPD2_3C.h>
 #include <TimeLib.h>
 #include "jura_regular8pt7b.h"
 #include "jura_regular7pt7b.h"
 #include "jura_bold30pt7b.h"
+#include "jura_bold28pt7b.h"
 #include "jura_bold12pt7b.h"
 #include "wifi_off.h"
+#include "web_config.h"
 
 /* 2.9'' EPD Module */
 GxEPD2_BW<GxEPD2_290_BS, GxEPD2_290_BS::HEIGHT> display(GxEPD2_290_BS(/*CS=D1*/ 3, /*DC=D3*/ 5, /*RES=D0*/ 2, /*BUSY=D5*/ 7));  // DEPG0290BS 128x296, SSD1680
@@ -25,7 +25,7 @@ const String timeURL = "https://api.coinbase.com/v2/time";
 const String basehistoryURL = "https://api.exchange.coinbase.com/products/" + cryptoCode + "-" + fiatCode + "/candles";
 const String exchangeURL = "https://api.coinbase.com/v2/exchange-rates?currency=USD";  //TODO: Add support for other currencies
 
-double btcusd;
+double tickPrice;
 double priceChange;
 double percentChange;
 double zeroLinePrice;
@@ -38,9 +38,6 @@ double history_min, history_max;
 int historylength;
 int granularity;
 
-WiFiClient client;
-HTTPClient http;
-
 String formattedDate;
 String dayStamp;
 String timeStamp;
@@ -48,9 +45,18 @@ String lastUpdatedTimeStr;
 String lastUpdatedDateStr;
 int64_t lastUpdatedTime;
 
+WiFiClient client;
+HTTPClient http;
+
+Config config = {0, 0, 0};
+WebServer server(80);
+Preferences prefs;
+
 void setup() {
   int i = 0;
   Serial.begin(115200);
+
+  loadConfigFromNVS();
 
   display.init(115200, true, 50, false);
 
@@ -76,6 +82,23 @@ void setup() {
   Serial.print("Connected to: ");
   Serial.print(ssid);
   Serial.println();
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  if (MDNS.begin("ticker")) {
+    Serial.println("MDNS responder started: http://ticker.local");
+  } else {
+    Serial.println("Error starting mDNS");
+  }
+
+  // Define routes
+  server.on("/", handleRoot);
+  server.on("/config", HTTP_GET, handleConfig);
+  server.on("/set", HTTP_POST, handleSet);
+
+  // Start web server
+  server.begin();
+  Serial.println("HTTP server started");
 
   if (chartMode == 0) {  // 1-day chart
     granularity = 3600;  // 1 hour candles
@@ -99,21 +122,28 @@ void setup() {
 }
 
 void blink1(void *parameter) {
-    while(1){
-      Serial.println("RUNNING TASK");
-      vTaskDelay(1000/portTICK_PERIOD_MS);
-    }
+  // TickType_t xLastWakeTime = xTaskGetTickCount();
+  // const TickType_t xFrequency = 1000 / portTICK_PERIOD_MS;
+
+  while (1) {
+    // int tim = esp_timer_get_time();
+    // Serial.print("RUNNING TASK ");
+    // Serial.println(tim);
+    // vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    server.handleClient();
+  }
 }
 
 void loop() {
   if (WiFi.status() == WL_CONNECTED) {
     getTime();
-    getCurrentBitcoinPrice();
+    getCurrentTickerPrice();
     getPercentChange();
-    getBitcoinHistory();
+    getTickerHistory();
     calculateMinMax();
     updateDisplay();
   } else {
+    displayError();
     Serial.println("WiFi Disconnected");
   }
 
@@ -168,7 +198,7 @@ void getTime() {
   createDateString(localTime, lastUpdatedDateStr);
 }
 
-void getCurrentBitcoinPrice() {
+void getCurrentTickerPrice() {
   Serial.print("Connecting to ");
   Serial.println(url_usd);
 
@@ -188,13 +218,13 @@ void getCurrentBitcoinPrice() {
   Serial.print("HTTP Status Code: ");
   Serial.println(httpCode);
 
-  String BTCUSDPrice = doc["data"]["amount"].as<String>();
+  String TickPriceStr = doc["data"]["amount"].as<String>();
   http.end();
 
-  btcusd = BTCUSDPrice.toDouble();
+  tickPrice = TickPriceStr.toDouble();
 
-  Serial.print("BTCUSD Price: ");
-  Serial.println(BTCUSDPrice.toDouble());
+  Serial.print("Ticker Price: ");
+  Serial.println(TickPriceStr.toDouble());
 }
 
 void getPercentChange() {
@@ -231,43 +261,12 @@ void getPercentChange() {
   Serial.println(zeroLinePrice);
 
   // Compute price/percent change
-  priceChange = (btcusd - zeroLinePrice);
-  percentChange = ((btcusd - zeroLinePrice) / zeroLinePrice) * 100.0;
+  priceChange = (tickPrice - zeroLinePrice);
+  percentChange = ((tickPrice - zeroLinePrice) / zeroLinePrice) * 100.0;
   Serial.printf("Percent change: %.2f%%\n", percentChange);
 }
 
-// void getCurrentBitcoinCandle() {
-//   int64_t now = (lastUpdatedTime / 60) * 60;
-//   int64_t start = now - 60;
-//   int64_t end = now;
-
-//   // --- Fetch current candle ---
-//   String currentCandleURL = basehistoryURL + "?start=" + String(start) + "&end=" + String(end) + "&granularity=60";
-//   Serial.println("Getting current candle: " + currentCandleURL);
-
-//   http.begin(currentCandleURL);
-//   int httpCode = http.GET();
-//   StaticJsonDocument<1000> currentDoc;
-//   DeserializationError error = deserializeJson(currentDoc, http.getString());
-//   http.end();
-
-//   JsonArray currentArray = currentDoc.as<JsonArray>();
-//   if (error || currentArray.size() == 0) {
-//     Serial.println("Current candle fetch failed.");
-//     return;
-//   }
-
-//   // Update last entry in chart
-//   pricehistory[historylength - 1][0] = currentArray[0][1].as<double>(); // Low
-//   pricehistory[historylength - 1][1] = currentArray[0][2].as<double>(); // High
-//   pricehistory[historylength - 1][2] = currentArray[0][3].as<double>(); // Open
-//   pricehistory[historylength - 1][3] = currentArray[0][4].as<double>(); // Close
-
-//   Serial.print("BTCUSD Current Close: ");
-//   Serial.println(pricehistory[historylength - 1][3]);
-// }
-
-void getBitcoinHistory() {
+void getTickerHistory() {
   String historyURL;
 
   int64_t end = (lastUpdatedTime / granularity) * granularity;
@@ -352,11 +351,12 @@ void updateDisplay() {
     display.setTextColor(TEXT_COLOR);
 
     /* Draw current Bitcoin value */
-    display.setFont(&Jura_Bold30pt7b);
-    str = createPriceString(btcusd, false, 3);
+    display.setFont(&Jura_Bold28pt7b);
+    str = createPriceString(tickPrice, false, 3);
+    // str = String(btcusd,0);
     display.getTextBounds(str, 0, 0, &tbx, &tby, &tbw, &tbh);
     x = ((display.width() - tbw) / 2) - tbx + 28;
-    y = y_offset + 23;
+    y = y_offset + 21;
     display.setCursor(x, y);
     display.print(str);
 
@@ -366,14 +366,14 @@ void updateDisplay() {
     if (cryptoCode.length() > 3) {
       display.setCursor(2, y_offset + 0);
     } else {
-      display.setCursor(10, y_offset + 0);
+      display.setCursor(5, y_offset + 0);
     }
     display.print(cryptoCode);
 
     display.getTextBounds(fiatCode, 0, 0, &tbx, &tby, &tbw, &tbh);
-    display.setCursor(10, y_offset + 26);
+    display.setCursor(5, y_offset + 26);
     display.print(fiatCode);
-    display.fillRoundRect(7, y_offset + 5, 52, 3, 1, TEXT_COLOR);
+    display.fillRoundRect(2, y_offset + 5, 52, 3, 1, TEXT_COLOR);
 
     /* Draw last update date and time */
     display.setFont(&Jura_Regular7pt7b);
@@ -561,7 +561,12 @@ void createDateString(const time_t time, String &dateString) {
 
 String createPriceString(double number, bool showSign, int decimalPlaces) {
   bool isNegative = number < 0;
-  if (isNegative) number = -number;
+  number = abs(number);
+
+  if (number >= 1e6) {
+    String result = String(number / 1e6, 2) + "M";
+    return result;
+  }
 
   // Format number string with decimals if < 1000, else as integer
   String str = (number < 1000.0) ? String(number, decimalPlaces) : String(number, 0);
